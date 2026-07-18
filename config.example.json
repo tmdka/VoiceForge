@@ -1,0 +1,19 @@
+{
+  "tts_root": "C:\\llama.cpp\\tts",
+  "exe": null,
+  "model_dir": null,
+  "lexicon": "lexicon-us-en.txt",
+  "num_threads": 4,
+  "host": "127.0.0.1",
+  "port": 8765,
+  "speed_flag": "--kokoro-length-scale",
+  "extra_args": [],
+  "voices_override": {
+    "3": {
+      "name": "Narrator"
+    },
+    "19": {
+      "hide": true
+    }
+  }
+}
