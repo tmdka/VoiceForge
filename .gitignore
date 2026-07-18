@@ -1,0 +1,26 @@
+# Runtime configuration
+config.json
+
+# Generated audio and cached previews
+outputs/
+previews/
+*.wav
+*.mp3
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Editors and operating systems
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temporary files
+*.tmp
+*.log
