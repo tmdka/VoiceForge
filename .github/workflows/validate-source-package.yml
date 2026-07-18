@@ -1,0 +1,103 @@
+name: Validate source package
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - VoiceForge-Kokoro-Studio.zip
+      - SETUP_FROM_ZIP.bat
+      - tools/START_VOICEFORGE.bat
+      - .github/workflows/validate-source-package.yml
+  pull_request:
+    paths:
+      - VoiceForge-Kokoro-Studio.zip
+      - SETUP_FROM_ZIP.bat
+      - tools/START_VOICEFORGE.bat
+      - .github/workflows/validate-source-package.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Verify required repository files
+        shell: pwsh
+        run: |
+          $required = @(
+            'VoiceForge-Kokoro-Studio.zip',
+            'SETUP_FROM_ZIP.bat',
+            'tools/START_VOICEFORGE.bat'
+          )
+          foreach ($path in $required) {
+            if (-not (Test-Path -LiteralPath $path)) {
+              throw "Missing required repository file: $path"
+            }
+          }
+
+      - name: Extract source package
+        shell: pwsh
+        run: |
+          $stage = Join-Path $env:RUNNER_TEMP 'voiceforge-source'
+          Expand-Archive -LiteralPath 'VoiceForge-Kokoro-Studio.zip' -DestinationPath $stage -Force
+          $source = if (Test-Path (Join-Path $stage 'VoiceForge/server.py')) {
+            Join-Path $stage 'VoiceForge'
+          } elseif (Test-Path (Join-Path $stage 'server.py')) {
+            $stage
+          } else {
+            throw 'server.py was not found in the source package.'
+          }
+          "VOICEFORGE_SOURCE=$source" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Validate package structure
+        shell: pwsh
+        run: |
+          $required = @(
+            'server.py',
+            'START_VOICEFORGE.bat',
+            'web/index.html'
+          )
+          foreach ($relative in $required) {
+            $path = Join-Path $env:VOICEFORGE_SOURCE $relative
+            if (-not (Test-Path -LiteralPath $path)) {
+              throw "Source package is incomplete: $relative"
+            }
+          }
+
+      - name: Validate Python syntax
+        shell: pwsh
+        run: python -m py_compile (Join-Path $env:VOICEFORGE_SOURCE 'server.py')
+
+      - name: Smoke-test local HTTP server
+        shell: pwsh
+        run: |
+          $source = $env:VOICEFORGE_SOURCE
+          $process = Start-Process python -ArgumentList 'server.py' -WorkingDirectory $source -PassThru -RedirectStandardOutput "$env:RUNNER_TEMP/server.out" -RedirectStandardError "$env:RUNNER_TEMP/server.err"
+          try {
+            $ready = $false
+            for ($i = 0; $i -lt 40; $i++) {
+              try {
+                $health = Invoke-RestMethod -Uri 'http://127.0.0.1:8765/api/health' -TimeoutSec 1
+                $ready = $true
+                break
+              } catch {
+                Start-Sleep -Milliseconds 250
+              }
+            }
+            if (-not $ready) {
+              Get-Content "$env:RUNNER_TEMP/server.out" -ErrorAction SilentlyContinue
+              Get-Content "$env:RUNNER_TEMP/server.err" -ErrorAction SilentlyContinue
+              throw 'VoiceForge did not become reachable on port 8765.'
+            }
+            Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:8765/' | Out-Null
+            Invoke-RestMethod -Uri 'http://127.0.0.1:8765/api/voices' | Out-Null
+          } finally {
+            if (-not $process.HasExited) {
+              Stop-Process -Id $process.Id -Force
+            }
+          }
